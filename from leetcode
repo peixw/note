@@ -1,0 +1,43 @@
+public int uniqueMorseRepresentations (String[] words){
+
+String[] Morse = new String[] {".-","-...","-.-.","-..",".","..-.","--.","....","..",".---","-.-",".-..","--","-.","---",".--.","--.-",".-.","...","-","..-","...-",".--","-..-","-.--","--.."}
+
+Set<String> seen = new HashSet();
+
+for(String word : words){
+StringBuilder code = new StringBuilder();
+for(char c : word.toCharArray())
+code.append(Morse[c-'a']);
+seen.add(code.toString());
+}
+return seen.size();
+}
+}
+
+uniqueMorseRepresentations为一个方法，括号中声明该方法的input，名为words，类型为字符串即String的input。
+方法名通常小写开头，类Class名通常大写开头。
+
+声明两个变量，Morse为String类型，seen为Set即数组类型。create objects through new
+
+for( 声明语句 : 表达式 )
+一种用于数组的循环
+声明语句用于声明新的变量，表达式用于确认要访问的数组名
+此处声明一个新的字符串变量，名为word
+for each word, call the string saved in words, which was defined as String before
+
+StringBuilder is used for modifying Strings
+code is a StringBuilder, append is a function of StringBuilder, means 将指定的字符串追加到此字符序列，
+即将Morse[c-'a']这个字符串追加到code这个字符序列
+
+c 为char类型，for each c， 按顺序读取word.toCharArray()中存储的信息
+toCharArray返回一个字符数组array，数组中存放了word这个字符串String中的所有字符
+此处字符串word被转换为字符数组，c按顺序读取数组中的字符
+
+if we type in a word like "leetcode"
+leetcode is saved in words
+word call words, so word=leetcode
+word is converted into array and called by c, so c=[l e e t c o d e]
+code is used to add c into code, so code=
+code is then added to seen
+
+tpye in second word,this word will also be saved into seen as?
