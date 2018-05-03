@@ -1,0 +1,27 @@
+public boolean judgeCircle(String moves) {
+        int x = 0;
+        int y = 0;
+        for (char ch : moves.toCharArray()) {
+            if (ch == 'U') y++;
+            else if (ch == 'D') y--;
+            else if (ch == 'R') x++;
+            else if (ch == 'L') x--;
+        }
+        return x == 0 && y == 0;
+    }
+    ch 为类moves中的一个对象，输入string moves，每个moves会被转化为char并存储在ch中。
+
+    def judgeCircle(self, moves):
+        """
+        :type moves: str
+        :rtype: bool
+        """
+        
+        if not moves:
+            return True
+        
+        if moves.count('U')== moves.count('D') and moves.count('L')==moves.count('R'):
+            return True
+        else:
+            return False
+
