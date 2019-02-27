@@ -1,0 +1,286 @@
+# libraries and functions ---------------------------------------------------------------
+options(java.parameters = "- Xmx1024m")
+library(tidyverse)
+library(xlsx)
+library(zoo)
+library(lubridate)
+library(gridExtra)
+library(scales)
+library(magrittr)
+
+#only year, add month+date (last day in each year)
+date_intoymd_end=function(x){
+  x=as.Date(paste(x,"-12-31",sep=""))
+  return(x)
+}
+
+#year+month with no date, add date (last day in each month)
+date_intoymd_beg=function(x){
+  x=as.Date(paste(x,"-01",sep=""))%m+%months(1)+days(-1)
+  return(x)
+}
+
+
+
+# Macroeconomic: Business Cycle -------------------------------------------
+
+#using GDP and Interest rate
+gdp=read.xlsx("C:\\Users\\Xiwen Pei\\Documents\\Tools\\Market Research Data_20181214_PX.xlsx",sheetName = "DB_TS (GDP)")[,c(1,2)]
+names(gdp)=c("date","GDP")
+ir=read.xlsx("C:\\Users\\Xiwen Pei\\Documents\\Tools\\Market Research Data_20181214_PX.xlsx",sheetName = "DB_TS (IR)")[,c(1,2,3,4,5)]
+names(ir)=c("date","all","short","middle","long")
+
+gdp$date=date_intoymd_beg(gdp$date)
+ir$date=date_intoymd_beg(ir$date)
+
+gdp_ir=merge.data.frame(gdp,ir,by="date")
+
+g1=ggplot(gdp_ir,mapping = aes(date,GDP,group=1))+
+  geom_path(color="steelblue3")+
+  geom_vline(xintercept = as.numeric(as.Date(c("2007-12-31","2009-12-31","2010-12-31","2012-12-31"))),linetype=4)+
+  theme(panel.background = element_rect(fill="white"),legend.position = "none")+
+  xlab("Time")+ylab("GDP Index 2010=100")
+g2=ggplot(gdp_ir,mapping=aes(date,all/100))+
+  geom_path(color="indianred3")+
+  geom_vline(xintercept = as.numeric(as.Date(c("2007-12-31","2009-12-31","2010-12-31","2012-12-31"))),linetype=4)+
+  theme(panel.background = element_rect(fill="white"),legend.position = "none")+
+  xlab("Time")+ylab("Bank Interest Rate")+scale_y_continuous(labels = percent)
+plot_gdp_ir=grid.arrange(g1,g2,ncol=1)
+
+#aggregate quarterly GDP into annual GDP
+gdp_ts=ts(gdp$GDP,start = c(1991,1),frequency = 4)
+gdp_ts=aggregate.ts(gdp_ts,nfrequency = 1)/4  
+date=seq(as.Date("1991/12/31"),as.Date("2017/12/31"),"years")
+gdp=data.frame(date=as.Date(date),GDP=gdp_ts)
+rm(gdp_ts)
+
+
+# Company Level: Profit and Leverage Cycle -------------------------------
+
+#using financial data of all companeis and smes
+ar=read.xlsx("C:\\Users\\Xiwen Pei\\Documents\\Tools\\Market Research Data_20181214_PX.xlsx",sheetName = "DB_AR (ALL)")
+arsme=read.xlsx("C:\\Users\\Xiwen Pei\\Documents\\Tools\\Market Research Data_20181214_PX.xlsx",sheetName = "DB_AR (SME)")
+
+ar$datavar_val_date=date_intoymd_end(ar$datavar_val_date)
+arsme$datavar_val_date=date_intoymd_end(arsme$datavar_val_date)
+
+colnames(ar)[1]="date"
+colnames(arsme)[1]="date"
+
+cnames=paste("is",colnames(ar[,71:99]),sep="")
+names(ar)[71:99]=cnames
+ar[is.na(ar)]=0
+cnames=paste("is",colnames(arsme[,71:99]),sep="")
+names(arsme)[71:99]=cnames
+arsme[is.na(arsme)]=0
+
+#calculate relevant ratios
+ratio_cal=function(x){
+  x=x %>% 
+    mutate(ebit=isX1.+isX2.+isX3.+isX4.-isX5.-isX6.-isX7.-isX8.,
+           ebitda=isX1.+isX2.+isX3.+isX4.-isX5.-isX6.-isX8.,
+           ebit_margin=ebit/isX1.,
+           equity_ratio=P.A./bsTotal,
+           debt=bsFDst+bsFDlt,
+           debt_ebitda=debt/ebitda,
+           ebit_interest=ebit/isX13.,
+           cash_ratio=bsC/bsTotal) %>% 
+    select(date,ebit_margin,equity_ratio,debt,ebitda,debt_ebitda,ebit_interest,cash_ratio)
+  return(x)
+}
+
+ratio=ratio_cal(ar)
+ratiosme=ratio_cal(arsme)
+
+write.csv(ratio,"FinancialRatio.csv")
+
+g1=ggplot(ratio,mapping = aes(date,ebit_margin))+geom_path()+
+  geom_vline(xintercept = as.numeric(as.Date(c("2007-12-31","2009-12-31","2010-12-31","2012-12-31"))),linetype=4)+
+  theme(panel.background = element_rect(fill="white"),legend.position = "none")+
+  xlab("Time")+ylab("EBIT-Margin")+scale_y_continuous(labels = percent)+
+  geom_text(data=subset(ratio,date=="2008-12-31"),aes(date,0.08,label="1st Crisis"))+
+  geom_text(data=subset(ratio,date=="2011-12-31"),aes(date,0.08,label="2nd Crisis"))
+g2=ggplot(ratio,mapping = aes(date,debt_ebitda))+geom_path()+
+  geom_vline(xintercept = as.numeric(as.Date(c("2007-12-31","2009-12-31","2010-12-31","2012-12-31"))),linetype=4)+
+  theme(panel.background = element_rect(fill="white"),legend.position = "none")+
+  xlab("Time")+ylab("DEBT-EBITDA")
+plot_fin_ratio=grid.arrange(g1,g2,ncol=1)
+
+#calculate DEBT EBITDA Growth Rate
+
+growth_cal=function(x){
+  debt_ebitda=select(x,c("debt","ebitda"))
+  n=nrow(x)
+  growth_rate=cbind(x[1:(n-1),1],diff(as.matrix(debt_ebitda))/debt_ebitda[1:(n-1),])
+  colnames(growth_rate)[1]="date"
+  return(growth_rate)
+}
+
+debt_ebitda_growth=growth_cal(ratio)
+debt_ebitda_sme_growth=growth_cal(ratiosme)
+
+plot_debt_ebitda_growth=ggplot(debt_ebitda_growth)+geom_path(mapping = aes(date,debt),size=1,color="indianred3")+
+  geom_line(mapping = aes(date,ebitda),size=1,color="steelblue3")+
+  labs(title = "DEBT-EBITDA Growth")+xlab("TIME")+ylab("Growth Rate")+
+  scale_y_continuous(labels = percent)+
+  theme(panel.background=element_blank(),axis.line=element_line(color="white"),legend.position = "none")+
+  geom_text(aes(x=as.Date("2011-5-31"),y=0.14,label="EBITDA"),color="steelblue3")+
+  geom_text(aes(x=as.Date("2002-12-31"),y=-0.07,label="DEBT"),color="indianred3")
+
+
+# Bank Level: Credit Cycle -----------------------------------------------
+
+#using credit tightening and default rate
+bk=read.xlsx("C:\\Users\\Xiwen Pei\\Documents\\Tools\\Market Research Data_20181214_PX.xlsx",sheetName = "DB_TS (Bank Credit)")
+ct=read.xlsx("C:\\Users\\Xiwen Pei\\Documents\\Tools\\Market Research Data_20181214_PX.xlsx",sheetName = "DB_BLS (credittightening)")
+pd=read.xlsx("C:\\Users\\Xiwen Pei\\Documents\\Tools\\Market Research Data_20181214_PX.xlsx",sheetName = "CREFO_PD")
+
+colnames(bk)[1]="date"
+colnames(bk)[2]="amount"
+colnames(ct)[1]="date"
+colnames(pd)[1]="date"
+
+bk$date=date_intoymd_beg(bk$date)
+ct$date=date_intoymd_beg(ct$date)
+pd$date=date_intoymd_end(pd$date)
+
+plot_pd_ct=ggplot(pd,mapping = aes(date,Gesamtwirtschaft/100))+geom_line(color="slategray",size=1)+geom_point(color="slategray")+
+  geom_point(data=ct,mapping=aes(date,Credit.Standard.to.German.SMEs/1000,color=Credit.Standard.to.German.SMEs<0))+
+  xlab("Time")+ylab("")+labs(title="Credit-tightening and Default Rate Curve")+scale_y_continuous(labels = percent)+
+  theme(panel.background = element_rect(fill="white"),legend.position = "none")+
+  scale_color_manual(values=c("indianred3","steelblue3"))
+df=merge.data.frame(bk,index,by="date")
+g1=ggplot(df,aes(date,amount))+geom_path(color="steelblue3")+theme_classic()+xlab("Time")+ylab("Amount of Bank Credit")+
+  geom_vline(xintercept = as.numeric(as.Date(c("2007-12-31","2009-12-31","2010-12-31","2012-12-31"))),linetype=4)
+g2=ggplot(df,aes(date,REX_Schluss))+geom_path(color="indianred3")+theme_classic()+xlab("Time")+ylab("REX Close BP")+
+  geom_vline(xintercept = as.numeric(as.Date(c("2007-12-31","2009-12-31","2010-12-31","2012-12-31"))),linetype=4)
+plot_bk_rex=grid.arrange(g1,g2,ncol=1)
+
+#DAX&REX
+index=read.xlsx("C:\\Users\\Xiwen Pei\\Documents\\Tools\\Market Research Data_20181214_PX.xlsx",sheetName = "DBS_WEB")
+colnames(index)[1]="date"
+
+#Stock Index as an indicator for corporate profitability
+#!!!need to be fixed
+
+df2=merge.data.frame(debt_ebitda_growth,index,by="date")
+n=length(df2$date)
+
+date=df2$date[1:n]
+DAXY=cbind(date,diff(as.matrix(df2$DAX_Schluss))/df2$DAX_Schluss[1:n])
+
+#df2=merge.data.frame(df2,DAXY,by="date")
+#plot_dax_ebitda=ggplot(df2,aes(date,V2))+geom_path(mapping=aes(date,V2),color="indianred3")+
+#  geom_path(mapping=aes(date,ebitda.x))+theme_classic()+
+#  geom_text(data=subset(df2,date=="2000-12-31"),aes(date,df2$V2[1]+0.02,label="DAX"),color="indianred3")+
+#  xlab("Time")+ylab("Growth Rate")+scale_y_continuous(labels = percent)+
+#  geom_text(data=subset(df2,date=="2000-12-31"),aes(date,df2$ebitda[1]+0.02,label="EBITDA"))
+
+
+
+# Industry Level: Industry Benchmarks ------------------------------------------------
+
+bach=read.xlsx("C:\\Users\\Xiwen Pei\\Documents\\Tools\\Market Research Data_20181214_PX.xlsx",sheetName = "BACH (Germany)")
+bach$year=date_intoymd_end(bach$year)
+
+kpi_bach=bach %>% 
+  filter(sample=="1") %>% 
+  mutate(turnover=turnover/nb_firms,
+         total_assets=total_assets/nb_firms,
+         ebitda=(X1.+X2.+X3.+X4.-X5.-X6.-X8.)/100*turnover,
+         debt=(bsFDst+bsFDlt)/100*total_assets,
+         ffo=(NetInc+X7.)/100*turnover,
+         ebitda_margin=ebitda/turnover,
+         debt_ebitda=debt/ebitda,
+         ffo_debt=ffo/debt) %>% 
+  group_by(sector) %>% 
+  select(year,sector,turnover,ebitda,debt,ffo,ebitda_margin,debt_ebitda,ffo_debt) %>% 
+  mutate(length=str_length(sector))
+
+kpi_summary=function(level){
+  kpi_sum=data.frame()
+  for (x in as.list(levels(kpi_bach$sector))) {
+    df=kpi_bach %>% 
+      filter(sector==toString(x)) %>% 
+      filter(length==level) %>% 
+      summarise(Revenue_High=max(turnover),Revenue_Low=min(turnover),Revenue_Average=mean(turnover),
+                EBITDA_Margin_High=max(ebitda_margin),EBITDA_Margin_Low=min(ebitda_margin),EBITDA_Margin_Average=mean(ebitda_margin),
+                DEBTtoEBITDA_High=max(debt_ebitda),DEBTtoEBITDA_Low=min(debt_ebitda),DEBTtoEBITDA_Average=mean(debt_ebitda),
+                FFOtoDebt_High=max(ffo_debt),FFOtoDebt_Low=min(ffo_debt),FFOtoDebt_Average=mean(ffo_debt))
+    kpi_sum=rbind(kpi_sum,df)
+  }
+  return(kpi_sum)
+}
+
+kpi_level1=kpi_summary(1)
+write.csv(kpi_level1,"Industry_LevelI.csv")
+kpi_level3=kpi_summary(3)
+
+pdf("credit_cycle.pdf")
+for (x in as.list(kpi_level1$sector)) {
+  y=kpi_bach %>% 
+    filter(sector==toString(x))
+  g1=ggplot(y)+geom_smooth(mapping = aes(year,turnover/1000),se=FALSE,color="black")+
+    theme_classic()+ylab("Turnover (Mio€)")+geom_path(mapping = aes(year,turnover/1000),color="steelblue3",linetype=4)+
+    ggtitle(toString(x))
+  g2=ggplot(y)+geom_smooth(mapping = aes(year,ebitda_margin),se=FALSE,color="black")+
+    theme_classic()+ylab("EBITDA Margin")+geom_path(mapping = aes(year,ebitda_margin),color="steelblue3",linetype=4)
+  g3=ggplot(y)+geom_smooth(mapping = aes(year,debt_ebitda),se=FALSE,color="black")+
+    theme_classic()+ylab("Debt to EBITDA")+geom_path(mapping = aes(year,debt_ebitda),color="steelblue3",linetype=4)
+  g4=ggplot(y)+geom_smooth(mapping = aes(year,ffo_debt),se=FALSE,color="black")+
+    theme_classic()+ylab("FFO to Debt")+geom_path(mapping = aes(year,ffo_debt),color="steelblue3",linetype=4)
+  grid.arrange(g1,g2,g3,g4,ncol=2,nrow=2)
+}
+dev.off()
+
+
+#aggregate level
+ratio_bach=bach %>% 
+  filter(sample=="1") %>% 
+  group_by(year,sector) %>% 
+  mutate(ebit_margin=(X1.+X2.+X3.+X4.-X5.-X6.-X7.-X8.)/X1.,
+         debt_ebitda=(bsFDst+bsFDlt)/(X1.+X2.+X3.+X4.-X5.-X6.-X8.),
+         cash_ratio=bsC/bsTotal) %>% 
+  select(year,sector,turnover,ebit_margin,debt_ebitda,cash_ratio) %>% 
+  summarise(turnover=mean(turnover),ebit_margin=mean(ebit_margin),debt_ebitda=mean(debt_ebitda),cash_ratio=mean(cash_ratio)) %>% 
+  arrange(year,turnover) %>% 
+  top_n(turnover,n=4) 
+
+ggplot(ratio_bach)+geom_path(mapping = aes(year,ebit_margin,color=sector))+
+  geom_path(mapping = aes(year,cash_ratio,color=sector),linetype=2)+
+  theme_classic()+
+  geom_vline(xintercept = as.numeric(as.Date(c("2007-12-31","2009-12-31","2010-12-31","2012-12-31"))),linetype=4)
+
+ggplot(ratio_bach)+geom_path(mapping = aes(year,debt_ebitda,color=sector))+
+  theme_classic()+
+  geom_vline(xintercept = as.numeric(as.Date(c("2007-12-31","2009-12-31","2010-12-31","2012-12-31"))),linetype=4)
+
+
+
+
+# side note ---------------------------------------------------------------
+
+
+#edward tufte
+
+#https://ggplot2.tidyverse.org/reference/
+
+
+
+#export plots
+pdf("credit_cycle.pdf")
+plot_debt_ebitda_growth
+plot_dax_ebitda
+plot_bk_rex=grid.arrange(g1,g2,ncol=1)
+plot_pd_ct
+dev.off()
+
+
+
+#write.csv(date,"file name")
+
+
+
+
+
+
